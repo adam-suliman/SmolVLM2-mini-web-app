@@ -1,116 +1,160 @@
-# SmolVLM2 + Gradio (Docker)
+# README.md
+# SmolVLM2 mini web app (Docker)
 
-Демо-веб интерфейс (Gradio) для SmolVLM2: мультимодальный чат (изображение/видео + текст), OCR с выгрузкой .txt, описание по координатам.
+Минимальный demo веб-интерфейс (Gradio) для SmolVLM2: мультимодальный чат (изображение/видео + текст), OCR с выгрузкой `.txt`, описание по координатам.
 
-## Требования
-- Docker + Docker Compose v2 (`docker compose`)
-- Зависит от настройки .env(e.g. NVIDIA драйвер + `nvidia-container-toolkit`, чтобы контейнер видел GPU)
+## ВАЖНО про кэш/веса (чтобы не скачивать каждый раз)
+Контейнер использует примонтированную директорию `./data/hf_cache` (на хосте) как единый корень кэшей Hugging Face:
+- hub cache → `/data/hf_cache/hub`
+- datasets cache → `/data/hf_cache/datasets`
+
+Docker Compose автоматически создаёт `./data/hf_cache` на хосте при первом запуске.
+
+Поведение загрузки модели в приложении:
+- Сначала приложение пытается загрузить модель **только из локального кэша** (без интернета).
+- Если файлов нет:
+  - при `HF_HUB_OFFLINE=1` запуск завершится с понятной ошибкой,
+  - при `HF_HUB_OFFLINE=0` модель будет скачана в примонтированный кэш и дальше будет переиспользоваться.
+
+Справка:
+- Кэши HF datasets: https://huggingface.co/docs/datasets/cache
+- Кэш Hugging Face Hub (модели/датасеты/spaces): https://huggingface.co/docs/huggingface_hub/en/guides/manage-cache
+- Transformers cache/offline/local_files_only: https://huggingface.co/docs/transformers/en/installation
 
 ---
 
-## Быстрый старт (первый запуск с интернетом, чтобы скачать веса модели)
-1) Скачайте репозиторий:
-    git clone <REPO_URL>
-    cd <REPO_DIR>
+## Запуск
 
-2) Создайте директорию для кэша/весов HF на хосте (она будет примонтирована в контейнер):
-    mkdir -p data/hf_cache
+### 1) Скачайте репозиторий
+~bash
+git clone https://github.com/adam-suliman/SmolVLM2-mini-web-app
+cd SmolVLM2-mini-web-app
+~
 
-3) Создайте `.env`:
-    cp .env.example .env
+### 2) Создайте .env
+~bash
+cp .env.example .env
+~
 
-4) Запустите приложение:
-    docker compose up
+### 3) Соберите образ
+~bash
+docker compose build
+~
 
-5) Откройте в браузере (с хоста):
-- По умолчанию: http://localhost:7860
-- Или: http://localhost:<APP_PORT> (если меняли порт)
+### 4) Первый запуск (онлайн, чтобы скачать веса если их нет в ./data/hf_cache)
+Убедитесь, что в `.env` стоит:
+~env
+HF_HUB_OFFLINE=0
+~
+Запуск:
+~bash
+docker compose up
+~
+
+Открыть в браузере (с хоста):
+- http://localhost:7860 (по умолчанию)
+- или http://localhost:<APP_PORT>
 
 Остановить:
-    Ctrl+C
-или:
-    docker compose down
-
----
-
-## Где и на каком порту доступно приложение
-- Порт берётся из переменной `APP_PORT` в .env (по умолчанию 7860).
-- Доступ с хоста: http://localhost:APP_PORT
+~bash
+docker compose down
+~
 
 ---
 
 ## Как поменять порт
-В `.env` измените:
-    APP_PORT=xxxx
-
-Перезапустите:
-    docker compose down
-    docker compose up
-
-Открывайте: http://localhost:xxxx
-
----
-
-## Как включить GPU / принудительно CPU
 В `.env`:
-- Авто (GPU если доступен, иначе CPU):
-    MODEL_DEVICE=auto
-- Принудительно GPU (если GPU недоступен — будет fallback на CPU с предупреждением):
-    MODEL_DEVICE=cuda
-- Принудительно CPU:
-    MODEL_DEVICE=cpu
+~env
+APP_PORT=8080
+~
+Перезапуск:
+~bash
+docker compose down
+docker compose up
+~
+Доступ:
+- http://localhost:8080
 
-ВАЖНО: чтобы контейнер реально увидел GPU, добавьте в `docker-compose.yml` (в сервис `app`) строку:
-    gpus: all
+---
+
+## GPU / CPU
+В `.env`:
+- авто:
+~env
+MODEL_DEVICE=auto
+~
+- принудительно CPU:
+~env
+MODEL_DEVICE=cpu
+~
+- принудительно GPU:
+~env
+MODEL_DEVICE=cuda
+~
+
+Чтобы контейнер увидел GPU, в `docker-compose.yml` раскомментируйте:
+~yaml
+gpus: all
+~
+Перезапуск:
+~bash
+docker compose down
+docker compose up --build
+~
+
+---
+
+## Как изменить размер/вариант SmolVLM2
+В `.env` задайте `SMOLVLM2_MODEL_ID`, например:
+- 2.2B:
+~env
+SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-2.2B-Instruct
+~
+- 500M:
+~env
+SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+~
+- 256M:
+~env
+SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
+~
 
 Перезапуск:
-    docker compose down
-    docker compose up --build
+~bash
+docker compose down
+docker compose up
+~
 
 ---
 
-## Как изменить размер/вариант модели SmolVLM2
-В `.env` установите `SMOLVLM2_MODEL_ID`, например:
-- Большая (по умолчанию):
-    SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-2.2B-Instruct
-- Средняя:
-    SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-500M-Video-Instruct
-- Маленькая:
-    SMOLVLM2_MODEL_ID=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
-
-Перезапуск:
-    docker compose down
-    docker compose up
-
-Примечание: при первом запуске с новой моделью она докачается в тот же кэш `data/hf_cache`.
+## Как использовать свой путь к кэшу/весам на хосте
+По умолчанию используется `./data/hf_cache:/data/hf_cache`.
+Если хотите другой путь на хосте — измените `source:` в `docker-compose.yml`, например:
+~yaml
+volumes:
+  - type: bind
+    source: /mnt/models/hf_cache
+    target: /data/hf_cache
+    bind:
+      create_host_path: true
+~
 
 ---
 
-## Как примонтировать с хоста директорию с весами модели (HF cache)
-По умолчанию уже настроено в `docker-compose.yml`:
-- Хост: `./data/hf_cache`
-- Контейнер: `/data/hf_cache` (переменная `HF_HOME=/data/hf_cache`)
-
-Фрагмент:
-    volumes:
-      - ./data/hf_cache:/data/hf_cache
-
-Если хотите другой путь на хосте — замените левую часть, например:
-    volumes:
-      - /mnt/models/hf_cache:/data/hf_cache
-
----
-
-## Офлайн запуск после первого скачивания
-1) Один раз запустите онлайн (как в “Быстрый старт”), чтобы модель скачалась в `data/hf_cache`.
-2) Затем в `.env`:
-    HF_HUB_OFFLINE=1
+## Полный офлайн-режим (после того как веса уже скачаны)
+1) Один раз запустите онлайн (см. выше), чтобы модель попала в `./data/hf_cache`.
+2) В `.env` включите офлайн:
+~env
+HF_HUB_OFFLINE=1
+~
 3) Запуск:
-    docker compose up
+~bash
+docker compose up
+~
 
 ---
 
-## Ссылки на описание модели / тех. отчёт
-- Технический отчёт (arXiv): https://arxiv.org/abs/2504.05299
-- Официальный блог HF про SmolVLM2: https://huggingface.co/blog/smolvlm2
-- Model card (пример, 256M Instruct): https://huggingface.co/HuggingFaceTB/SmolVLM2-256M-Video-Instruct
+## Ссылка на тех. отчёт / описание модели
+- Paper (arXiv): https://arxiv.org/abs/2504.05299
+- Hugging Face paper page: https://huggingface.co/papers/2504.05299
+- Model card (пример): https://huggingface.co/HuggingFaceTB/SmolVLM2-2.2B-Instruct
