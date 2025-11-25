@@ -1,0 +1,16 @@
+# docker-compose.yml
+version: "3"
+
+services:
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-7860}:${APP_PORT:-7860}"
+    environment:
+      SMOLVLM2_MODEL_ID: ${SMOLVLM2_MODEL_ID:-HuggingFaceTB/SmolVLM2-2.2B-Instruct}
+      MODEL_DEVICE: ${MODEL_DEVICE:-auto}
+      APP_PORT: ${APP_PORT:-7860}
+      HF_HOME: /data/hf_cache
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes:
+      - ./data/hf_cache:/data/hf_cache
