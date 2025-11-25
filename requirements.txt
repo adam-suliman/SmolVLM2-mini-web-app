@@ -4,3 +4,4 @@ gradio>=4.0
 decord
 accelerate
 pillow
+num2words
