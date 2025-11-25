@@ -4,20 +4,16 @@ services:
     ports:
       - "${APP_PORT:-7860}:${APP_PORT:-7860}"
     environment:
-      # Основные настройки
       SMOLVLM2_MODEL_ID: "${SMOLVLM2_MODEL_ID:-HuggingFaceTB/SmolVLM2-2.2B-Instruct}"
       MODEL_DEVICE: "${MODEL_DEVICE:-auto}"
       APP_PORT: "${APP_PORT:-7860}"
 
-      # Единый корень кэшей Hugging Face внутри контейнера
       HF_HOME: "/data/hf_cache"
 
-      # Явно фиксируем хаб-кэш и кэши трансформеров/датасетов внутри примонтированной директории
       HF_HUB_CACHE: "/data/hf_cache/hub"
       TRANSFORMERS_CACHE: "/data/hf_cache/hub"
       HF_DATASETS_CACHE: "/data/hf_cache/datasets"
 
-      # Офлайн режим: 1 = запрещены обращения к Hugging Face Hub
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
 
     # Кэш/веса на хосте: Compose сам создаст ./data/hf_cache при первом запуске
@@ -28,7 +24,7 @@ services:
         bind:
           create_host_path: true
 
-    # GPU (раскомментируйте при наличии NVIDIA Container Toolkit)
-    # gpus: all
+
+    gpus: all
 
     restart: unless-stopped

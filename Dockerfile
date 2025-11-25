@@ -23,7 +23,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY app.py /app/app.py
 
-# Создаём директории под кэши внутри контейнера (а при монтировании они будут приходить с хоста)
 RUN mkdir -p /data/hf_cache /data/hf_cache/hub /data/hf_cache/datasets
 
 EXPOSE 7860
