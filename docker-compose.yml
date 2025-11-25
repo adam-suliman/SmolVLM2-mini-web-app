@@ -1,4 +1,3 @@
-# docker-compose.yml
 version: "3"
 
 services:
@@ -7,7 +6,7 @@ services:
     ports:
       - "${APP_PORT:-7860}:${APP_PORT:-7860}"
     environment:
-      SMOLVLM2_MODEL_ID: ${SMOLVLM2_MODEL_ID:-HuggingFaceTB/SmolVLM2-2.2B-Instruct}
+      SMOLVLM2_MODEL_ID: ${SMOLVLM2_MODEL_ID:-HuggingFaceTB/SmolVLM2-256M-Video-Instruct}
       MODEL_DEVICE: ${MODEL_DEVICE:-auto}
       APP_PORT: ${APP_PORT:-7860}
       HF_HOME: /data/hf_cache
