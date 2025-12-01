@@ -10,9 +10,8 @@ from PIL import Image
 from transformers import AutoProcessor, AutoModelForImageTextToText
 
 
-# -----------------------------
+
 # Конфигурация через env vars
-# -----------------------------
 MODEL_ID = os.getenv("SMOLVLM2_MODEL_ID", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
 DEVICE_SETTING = os.getenv("MODEL_DEVICE", "auto").lower()
 REQUESTED_DTYPE = os.getenv("MODEL_DTYPE", "").strip().lower()
@@ -24,14 +23,13 @@ HF_HUB_CACHE = os.getenv("HF_HUB_CACHE", None) or os.getenv("TRANSFORMERS_CACHE"
 HF_DATASETS_CACHE = os.getenv("HF_DATASETS_CACHE", None)
 HF_HUB_OFFLINE = os.getenv("HF_HUB_OFFLINE", "0").strip().lower() in ("1", "true", "yes", "y")
 
-# Подготовим директории кэша (если заданы)
+
 for _p in [HF_HOME, HF_HUB_CACHE, HF_DATASETS_CACHE]:
     if _p:
         os.makedirs(_p, exist_ok=True)
 
-# -----------------------------
+
 # Выбор устройства
-# -----------------------------
 if DEVICE_SETTING == "cuda":
     if torch.cuda.is_available():
         device = "cuda"
@@ -66,10 +64,10 @@ print(
 )
 
 
-# -----------------------------
+
 # Загрузка модели/процессора
-# Требование: скачивать только если нет в примонтированном кэше
-# -----------------------------
+# Скачивается только если нет в примонтированном кэше
+
 def _load_processor_and_model() -> tuple[AutoProcessor, AutoModelForImageTextToText]:
     """
     1) Сначала пытаемся загрузить ТОЛЬКО из локального кэша (local_files_only=True).
@@ -124,9 +122,7 @@ model.to(device=device, dtype=dtype)
 print(f"[init] model parameters device={next(model.parameters()).device}, dtype={next(model.parameters()).dtype}")
 
 
-# -----------------------------
 # Валидация файлов
-# -----------------------------
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".webm"}
 
@@ -149,9 +145,7 @@ def _validate_chat_media(path: str) -> str:
     raise gr.Error("Ожидается изображение (PNG/JPEG) или видео (.mp4).")
 
 
-# -----------------------------
 # Инференс
-# -----------------------------
 def _run_model(messages: List[dict], max_new_tokens: int = 128) -> str:
     inputs = processor.apply_chat_template(
         messages,
@@ -288,9 +282,7 @@ def ocr(image: Optional[str]) -> Tuple[str, str]:
 
 
 
-# -----------------------------
 # UI
-# -----------------------------
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="Демо SmolVLM2") as demo:
         gr.Markdown(
