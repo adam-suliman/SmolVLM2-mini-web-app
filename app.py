@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import warnings
 from typing import List, Tuple, Optional
@@ -14,6 +15,7 @@ from transformers import AutoProcessor, AutoModelForImageTextToText
 # -----------------------------
 MODEL_ID = os.getenv("SMOLVLM2_MODEL_ID", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
 DEVICE_SETTING = os.getenv("MODEL_DEVICE", "auto").lower()
+REQUESTED_DTYPE = os.getenv("MODEL_DTYPE", "").strip().lower()
 APP_PORT = int(os.getenv("APP_PORT", "7860"))
 
 # Hugging Face caches (в docker-compose они направлены в примонтированную директорию)
@@ -41,7 +43,27 @@ elif DEVICE_SETTING == "cpu":
 else:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-dtype = torch.bfloat16 if device == "cuda" else torch.float32
+_capability = torch.cuda.get_device_capability() if device == "cuda" and torch.cuda.is_available() else None
+_has_bfloat16 = bool(_capability and _capability[0] >= 8)
+if device == "cuda":
+    if REQUESTED_DTYPE == "float16":
+        dtype = torch.float16
+    elif REQUESTED_DTYPE == "float32":
+        dtype = torch.float32
+    elif REQUESTED_DTYPE == "bfloat16":
+        dtype = torch.bfloat16
+    else:
+        # Ampere+ can use bfloat16, pre-Ampere GPUs (e.g. RTX 20xx) should stick to float16
+        dtype = torch.bfloat16 if _has_bfloat16 else torch.float16
+        if REQUESTED_DTYPE:
+            warnings.warn(f"MODEL_DTYPE='{REQUESTED_DTYPE}' not recognized, using default dtype: {dtype}.")
+else:
+    dtype = torch.float32
+
+print(
+    f"[init] device={device}; dtype={dtype}; cuda_available={torch.cuda.is_available()}; "
+    f"capability={_capability}; gpu={torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'n/a'}"
+)
 
 
 # -----------------------------
@@ -98,14 +120,15 @@ def _load_processor_and_model() -> tuple[AutoProcessor, AutoModelForImageTextToT
 
 
 processor, model = _load_processor_and_model()
-model.to(device)
+model.to(device=device, dtype=dtype)
+print(f"[init] model parameters device={next(model.parameters()).device}, dtype={next(model.parameters()).dtype}")
 
 
 # -----------------------------
 # Валидация файлов
 # -----------------------------
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
-VIDEO_EXTENSIONS = {".mp4"}
+VIDEO_EXTENSIONS = {".mp4", ".webm"}
 
 
 def _ensure_image_readable(path: str) -> None:
@@ -145,12 +168,26 @@ def _run_model(messages: List[dict], max_new_tokens: int = 128) -> str:
     return texts[0]
 
 
+def _clean_ocr_output(text: str, prompt: str) -> str:
+    """
+    Remove echoed prompts and role labels that the model might prepend.
+    """
+    cleaned = text.replace(prompt, "")
+    lines: List[str] = []
+    for ln in cleaned.splitlines():
+        ln = re.sub(r"^\\s*(User|Assistant|System):\\s*", "", ln, flags=re.IGNORECASE).strip()
+        if not ln:
+            continue
+        lines.append(ln)
+    return "\n".join(lines).strip()
+
+
 def infer_vqa(
     image_or_video: Optional[str],
     question: str,
     history: Optional[List[Tuple[str, str]]],
     state: Optional[str],
-) -> Tuple[List[Tuple[str, str]], Optional[str]]:
+) -> Tuple[List[dict], Optional[str]]:
     """
     Мультимодальный чат: VQA + captioning + описание видео.
     Требование: можно задавать несколько вопросов к одному файлу без повторной загрузки.
@@ -182,11 +219,22 @@ def infer_vqa(
 
         answer = _run_model(messages, max_new_tokens=192)
 
-        if history is None:
-            history = []
-        history.append((question.strip(), answer))
+        normalized_history: List[dict] = []
+        if history:
+            for h in history:
+                if isinstance(h, dict) and "role" in h and "content" in h:
+                    normalized_history.append(h)
+                elif hasattr(h, "role") and hasattr(h, "content"):
+                    normalized_history.append({"role": getattr(h, "role"), "content": getattr(h, "content")})
+                elif isinstance(h, (list, tuple)) and len(h) == 2:
+                    # Backward compatibility with tuple chat history (user, assistant)
+                    normalized_history.append({"role": "user", "content": h[0]})
+                    normalized_history.append({"role": "assistant", "content": h[1]})
 
-        return history, current_path
+        normalized_history.append({"role": "user", "content": question.strip()})
+        normalized_history.append({"role": "assistant", "content": answer})
+
+        return normalized_history, current_path
     except gr.Error:
         raise
     except Exception:
@@ -206,8 +254,8 @@ def ocr(image: Optional[str]) -> Tuple[str, str]:
         _ensure_image_readable(image)
 
         prompt = (
-            "Считай это задачей OCR. Пожалуйста, перепиши ВСЁ читаемое текстовое содержимое на изображении "
-            "как простой текст без дополнительных комментариев."
+            "You are an OCR engine. Return only the recognized text exactly as it appears. "
+            "Do not add explanations, prefaces, language names, or quotes. No markdown."
         )
 
         messages = [
@@ -221,11 +269,14 @@ def ocr(image: Optional[str]) -> Tuple[str, str]:
         ]
 
         text = _run_model(messages, max_new_tokens=512)
+        text = _clean_ocr_output(text, prompt)
 
         ts = int(time.time())
         out_name = f"ocr_result_{ts}.txt"
-        out_path = os.path.join("/tmp", out_name)
-        os.makedirs("/tmp", exist_ok=True)
+        import tempfile
+        out_dir = tempfile.gettempdir()
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, out_name)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(text)
 
@@ -235,51 +286,6 @@ def ocr(image: Optional[str]) -> Tuple[str, str]:
     except Exception:
         raise gr.Error("Не удалось распознать текст. Проверьте изображение и попробуйте ещё раз.")
 
-
-def describe_by_bbox(image: Optional[str], coords_str: str) -> str:
-    """
-    Описание объекта по координатам (без реального кропа, координаты передаются текстом).
-    """
-    try:
-        if not image:
-            raise gr.Error("Сначала загрузите изображение.")
-        ext = os.path.splitext(image)[1].lower()
-        if ext not in IMAGE_EXTENSIONS:
-            raise gr.Error("Ожидается изображение (PNG/JPEG), а не текстовый файл.")
-        _ensure_image_readable(image)
-
-        if coords_str is None:
-            coords_str = ""
-        parts = [p.strip() for p in coords_str.split(",") if p.strip() != ""]
-        if len(parts) != 4:
-            raise gr.Error("Координаты должны быть четырьмя числами через запятую: x1,y1,x2,y2.")
-
-        try:
-            x1, y1, x2, y2 = map(float, parts)
-        except Exception:
-            # строго как в требовании 2.3
-            raise gr.Error("Координаты должны быть в формате x1,y1,x2,y2, только числа")
-
-        prompt = (
-            "На изображении задан прямоугольник интереса (ROI) в пиксельных координатах. "
-            f"Координаты ROI: x1={x1}, y1={y1}, x2={x2}, y2={y2}. "
-            "Опиши объект(ы) внутри этого прямоугольника. Ответ должен быть подробным, но кратким и по делу."
-        )
-
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "path": image},
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ]
-        return _run_model(messages, max_new_tokens=192)
-    except gr.Error:
-        raise
-    except Exception:
-        raise gr.Error("Не удалось получить описание. Проверьте входные данные и попробуйте ещё раз.")
 
 
 # -----------------------------
@@ -291,7 +297,6 @@ def build_ui() -> gr.Blocks:
             "## Демо SmolVLM2\n"
             "- Вкладка **Мультимодальный чат**: вопросы к изображению/видео\n"
             "- Вкладка **OCR**: распознавание текста\n"
-            "- Вкладка **Описание по координатам**: описание ROI x1,y1,x2,y2\n"
         )
 
         # Tab 1
@@ -317,7 +322,7 @@ def build_ui() -> gr.Blocks:
         with gr.Tab("OCR"):
             ocr_image = gr.Image(label="Загрузите изображение", type="filepath")
             ocr_btn = gr.Button("Распознать текст")
-            ocr_output = gr.Textbox(label="Распознанный текст", interactive=False)
+            ocr_output = gr.Textbox(label="Распознанный текст", interactive=False, lines=12, max_lines=24)
             ocr_download = gr.File(label="Скачать результат (.txt)")
 
             def _ocr_wrapper(img_path: Optional[str]):
@@ -330,18 +335,6 @@ def build_ui() -> gr.Blocks:
                 outputs=[ocr_output, ocr_download],
             )
 
-        # Tab 3
-        with gr.Tab("Описание по координатам"):
-            bbox_image = gr.Image(label="Загрузите изображение", type="filepath")
-            coords_input = gr.Textbox(label="Координаты (x1,y1,x2,y2)", placeholder="x1,y1,x2,y2")
-            bbox_btn = gr.Button("Получить описание")
-            bbox_output = gr.Textbox(label="Описание", interactive=False)
-
-            bbox_btn.click(
-                describe_by_bbox,
-                inputs=[bbox_image, coords_input],
-                outputs=bbox_output,
-            )
 
     return demo
 

@@ -5,3 +5,4 @@ decord
 accelerate
 pillow
 num2words
+torchvision
