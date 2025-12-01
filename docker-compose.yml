@@ -25,6 +25,6 @@ services:
           create_host_path: true
 
 
-    gpus: all
+    # gpus: all
 
     restart: unless-stopped
