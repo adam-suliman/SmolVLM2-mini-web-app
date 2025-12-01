@@ -44,7 +44,7 @@ docker compose build
 ```
 docker compose up
 ```
-UI доступен на http://localhost:${APP_PORT:-7860}
+UI доступен на http://localhost:7860
 Остановить: `docker compose down`
 
 
@@ -52,7 +52,7 @@ UI доступен на http://localhost:${APP_PORT:-7860}
 Измените `APP_PORT` в `.env`, затем перезапустите контейнеры (`docker compose down` и `docker compose up`). Приложение будет на `http://localhost:<APP_PORT>`.
 
 ## GPU или CPU
-- GPU: `MODEL_DEVICE=cuda`, добавьте `gpus: all` в `docker-compose.yml` или запускайте с `docker run --gpus all ...`; на хосте должны быть драйвер и `nvidia-container-toolkit`.
+- GPU: `MODEL_DEVICE=cuda`, раскомментиируйте `gpus: all` в `docker-compose.yml` или запускайте с `docker run --gpus all ...`; на хосте должны быть драйвер и `nvidia-container-toolkit`.
 - CPU: `MODEL_DEVICE=cpu` (или `auto` без GPU) — работает без дополнительных настроек.
 
 ## Как выбрать размер модели

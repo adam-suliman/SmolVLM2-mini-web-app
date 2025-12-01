@@ -24,4 +24,7 @@ services:
         bind:
           create_host_path: true
 
+
+    gpus: all
+
     restart: unless-stopped
